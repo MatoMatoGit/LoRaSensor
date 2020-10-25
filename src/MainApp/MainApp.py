@@ -5,10 +5,13 @@ from upyiot.system.SystemTime.SystemTime import SystemTime
 from upyiot.system.Service.ServiceScheduler import ServiceScheduler
 from upyiot.system.Service.ServiceScheduler import Service
 from upyiot.system.Util import ResetReason
+from upyiot.comm.Messaging.Message import Message
+from upyiot.comm.Messaging.MessageTemplate import MessageTemplate
 from upyiot.comm.Messaging.MessageExchange import MessageExchange
 from upyiot.comm.Messaging.MessageSpecification import MessageSpecification
 from upyiot.comm.Messaging.MessageFormatter import MessageFormatter
 from upyiot.comm.Messaging.Protocol.LoraProtocol import LoraProtocol
+from upyiot.comm.Messaging.Parser.CborParser import CborParser
 from upyiot.middleware.Sensor import Sensor
 
 from upyiot.drivers.Sensors.DummySensor import DummySensor
@@ -17,13 +20,8 @@ from upyiot.drivers.Modems.Sx127x.config import *
 
 # SmartSensor modules
 from Messages.LogMessage import LogMessage
-from Messages.SensorReport import SensorReportTemp
-from Messages.SensorReport import SensorReportMoist
-from Messages.SensorReport import SensorReportLight
-from UserInterface.Notification import Notifyer
-from UserInterface.Notification import NotificationRange
-from UserInterface.Notification import Notification
-from UserInterface.UserButton import UserButton
+from Messages.SensorReport import SensorReport
+from Messages.MetadataSchema import *
 from Config.Hardware import Pins
 
 # micropython modules
@@ -49,8 +47,7 @@ class MainApp:
 
     # Service intervals in seconds.
     MsgExInterval           = const(60)
-    EnvSensorReadInterval   = const(15)
-    NotificationInterval    = const(15)
+    SensorReadInterval      = const(15)
 
     def __init__(self):
         return
@@ -97,69 +94,47 @@ class MainApp:
         self.Scheduler.ServiceRegister(self.MsgEx)
         self.Scheduler.ServiceRegister(self.DummySensor)
 
-        # Create message specifications.
-        self.TempMsgSpec = SensorReportTemp()
-        self.MoistMsgSpec = SensorReportMoist()
-        self.LightMsgSpec = SensorReportLight()
-        self.LogMsgSpec = LogMessage()
+        self.Parser = CborParser()
+        Message.SetParser(self.Parser)
 
-        # Create MessageFormatAdapters and couple them with their message specs.
-        self.TempAdapt = MessageFormatAdapter(self.MsgEp,
-                                              MessageFormatAdapter.SEND_ON_COMPLETE,
-                                              self.TempMsgSpec)
-        self.MoistAdapt = MessageFormatAdapter(self.MsgEp,
-                                               MessageFormatAdapter.SEND_ON_COMPLETE,
-                                               self.MoistMsgSpec)
-        self.LightAdapt = MessageFormatAdapter(self.MsgEp,
-                                               MessageFormatAdapter.SEND_ON_COMPLETE,
-                                               self.LightMsgSpec)
-        self.LogAdapt = MessageFormatAdapter(self.MsgEp,
-                                             MessageFormatAdapter.SEND_ON_COMPLETE,
-                                             self.LogMsgSpec)
+        MessageTemplate.SectionsSet(MetadataSchema.MSG_SECTION_META, MetadataSchema.MSG_SECTION_DATA)
+        MessageTemplate.MetadataTemplateSet(MetadataSchema.Metadata, MetadataSchema.MetadataFuncs)
+
+        # Create message specifications.
+        self.SensorReportSpec = SensorReport()
+        # self.LogMsgSpec = LogMessage()
+
+        # Create MessageFormatters and couple them with their message specs.
+        self.ReportFmt = MessageFormatter(self.MsgEx,
+                                          MessageFormatter.SEND_ON_COMPLETE,
+                                          self.SensorReportSpec,
+                                          self.MsgMetadata)
 
         # Register message specs for exchange.
-        self.MsgEx.RegisterMessageType(self.TempMsgSpec)
-        self.MsgEx.RegisterMessageType(self.MoistMsgSpec)
-        self.MsgEx.RegisterMessageType(self.LightMsgSpec)
+        self.MsgEx.RegisterMessageType(self.SensorReportSpec)
         self.MsgEx.RegisterMessageType(self.LogMsgSpec)
 
         # Create observers for the sensor data.
-        self.TempObserver = self.TempAdapt.CreateObserver(
-            SensorReportTemp.DATA_KEY_SENSOR_REPORT_SAMPLES,
-            self.SamplesPerMessage)
-        self.MoistObserver = self.MoistAdapt.CreateObserver(
-            SensorReportMoist.DATA_KEY_SENSOR_REPORT_SAMPLES,
-            self.SamplesPerMessage)
-        self.LightObserver = self.LightAdapt.CreateObserver(
-            SensorReportLight.DATA_KEY_SENSOR_REPORT_SAMPLES,
-            self.SamplesPerMessage)
+        self.MoistObserver = self.ReportFmt.CreateObserver(SensorReport.DATA_KEY_MOIST, self.SamplesPerMessage)
+        self.BatteryObserver = self.ReportFmt.CreateObserver(SensorReport.DATA_KEY_BAT, self.SamplesPerMessage)
 
         # Link the observers to the sensors.
-        self.TempSensor.ObserverAttachNewSample(self.TempObserver)
-        self.MoistSensor.ObserverAttachNewSample(self.MoistObserver)
-        self.MoistSensor.ObserverAttachNewSample(self.MoistNotif)
-        self.LightSensor.ObserverAttachNewSample(self.LightObserver)
+        self.DummySensor.ObserverAttachNewSample(self.MoistObserver)
 
         # Create a stream for the log messages.
-        self.LogStream = self.LogAdapt.CreateStream(LogMessage.DATA_KEY_LOG_MSG,
-                                                    ExtLogging.WRITES_PER_LOG)
+        # self.LogStream = self.LogAdapt.CreateStream(LogMessage.DATA_KEY_LOG_MSG,
+        #                                            ExtLogging.WRITES_PER_LOG)
 
         # Configure the ExtLogging class.
-        ExtLogging.ConfigGlobal(level=ExtLogging.INFO, stream=self.LogStream)
+        # ExtLogging.ConfigGlobal(level=ExtLogging.INFO, stream=self.LogStream)
 
         # Set intervals for all services.
         self.MsgEx.SvcIntervalSet(self.MsgExInterval)
-        self.MoistSensor.SvcIntervalSet(self.EnvSensorReadInterval)
-        self.TempSensor.SvcIntervalSet(self.EnvSensorReadInterval)
-        self.LightSensor.SvcIntervalSet(self.EnvSensorReadInterval)
-        self.Notifyer.SvcIntervalSet(self.NotificationInterval)
+        self.DummySensor.SvcIntervalSet(self.SensorReadInterval)
 
     def Reset(self):
         self.MsgEx.Reset()
-        self.TempSensor.SamplesDelete()
-        self.MoistSensor.SamplesDelete()
-        self.LightSensor.SamplesDelete()
-        self.NetCon.StationSettingsReset()
+        self.DummySensor.SamplesDelete()
 
     def Run(self):
         self.Scheduler.Run()
