@@ -13,7 +13,6 @@ from upyiot.comm.Messaging.MessageFormatter import MessageFormatter
 from upyiot.comm.Messaging.Protocol.LoraProtocol import LoraProtocol
 from upyiot.comm.Messaging.Parser.CborParser import CborParser
 from upyiot.middleware.Sensor import Sensor
-
 from upyiot.drivers.Sensors.DummySensor import DummySensor
 from upyiot.drivers.Modems.Sx127x.sx127x import TTN, SX127x
 from upyiot.drivers.Modems.Sx127x.config import *
@@ -38,6 +37,7 @@ class MainApp:
 
     DummySamples = [20, 30, 25, 11, -10, 40, 32]
 
+    DIR = "/"
     ID = str(ubinascii.hexlify(machine.unique_id()).decode('utf-8'))
     RETRIES = 3
     FILTER_DEPTH = const(1)
@@ -53,6 +53,7 @@ class MainApp:
         return
 
     def Setup(self):
+        print("Device ID: {}".format(self.ID))
 
         rst_reason = ResetReason.ResetReason()
         print("[Setup] Reset reason: {}".format(ResetReason.ResetReasonToString(rst_reason)))
@@ -60,7 +61,8 @@ class MainApp:
         # Create driver instances.
         self.DummySensorDriver = DummySensor(self.DummySamples)
 
-        self.Ttn = TTN(ttn_config['devaddr'], ttn_config['nwkey'], ttn_config['app'], country=ttn_config['country'])
+        self.Ttn = TTN(ttn_config['devaddr'], ttn_config['nwkey'],
+                       ttn_config['app'], country=ttn_config['country'])
 
         self.LoraSpi = SPI(baudrate = 10000000,
                 polarity = 0, phase = 0, bits = 8, firstbit = SPI.MSB,
