@@ -10,7 +10,7 @@ MSG_META_ID         = const(12)
 Metadata = {
     MSG_META_VERSION:   1,
     MSG_META_TYPE:      1,
-    MSG_META_ID:        DeviceId(),
+    MSG_META_ID:        DeviceId.DeviceId(),
 }
 
 MetadataFuncs = {
