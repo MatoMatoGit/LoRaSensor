@@ -14,6 +14,7 @@ from upyiot.comm.Messaging.MessageFormatter import MessageFormatter
 from upyiot.comm.Messaging.Protocol.LoraProtocol import LoraProtocol
 from upyiot.comm.Messaging.Parser.CborParser import CborParser
 from upyiot.middleware.Sensor import Sensor
+from upyiot.middleware.StructFile import StructFile
 from upyiot.drivers.Sleep.DeepSleep import DeepSleep
 from upyiot.drivers.Sensors.DummySensor import DummySensor
 from upyiot.drivers.Sensors.InternalTemp import InternalTemp
@@ -59,7 +60,12 @@ class MainApp:
         return
 
     def Setup(self):
-        self.Log = ExtLogging.LoggerGet("Main")
+        # Configure the ExtLogging class.
+        ExtLogging.ConfigGlobal(level=ExtLogging.INFO, stream=None, dir="",
+                                file_prefix="log_", line_limit=1000, file_limit=10)
+        StructFile.InitLogger()
+
+        self.Log = ExtLogging.Create("Main")
 
         self.Log.info("Device ID: {}".format(DeviceId.DeviceId()))
 
@@ -151,9 +157,6 @@ class MainApp:
         self.DummySensor.ObserverAttachNewSample(self.MoistObserver)
         self.TempSensor.ObserverAttachNewSample(self.TempObserver)
 
-        # Configure the ExtLogging class.
-        ExtLogging.ConfigGlobal(level=ExtLogging.INFO, stream=None, file_path="/test_log")
-
         self.Scheduler.DeepSleep.RegisterCallbackBeforeDeepSleep(MainApp.LoraSleep)
 
         # Set intervals for all services.
@@ -174,13 +177,12 @@ class MainApp:
 
     def Run(self):
         self.Log.info("Starting scheduler")
-        #self.MsgEx.SvcActivate()
+        self.MsgEx.SvcActivate()
         self.Scheduler.Run(4)
         self.Scheduler.RequestDeepSleep(20)
 
     @staticmethod
     def LoraSleep():
-        print("Setting LoRa modem to sleep mode.")
         MainApp.Lora.sleep()
         ExtLogging.Stop()
         while True:
