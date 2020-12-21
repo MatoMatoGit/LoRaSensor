@@ -1,0 +1,3 @@
+[submodule "upyiot"]
+	path = upyiot
+	url = git@github.com:MatoMatoGit/upyiot.git
