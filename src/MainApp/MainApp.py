@@ -16,7 +16,6 @@ from upyiot.comm.Messaging.Protocol.LoraProtocol import LoraProtocol
 from upyiot.comm.Messaging.Parser.CborParser import CborParser
 from upyiot.middleware.Sensor import Sensor
 from upyiot.middleware.StructFile import StructFile
-from upyiot.drivers.Sleep.DeepSleep import DeepSleep
 from upyiot.drivers.Sensors.DummySensor import DummySensor
 from upyiot.drivers.Sensors.InternalTemp import InternalTemp
 
@@ -27,13 +26,11 @@ from Messages import MetadataSchema
 from MainApp.PowerManager import PowerManager
 
 # micropython modules
-import network
-from network import WLAN
 from micropython import const
 import machine
-from machine import Pin, SPI
 import ubinascii
 import utime
+import uos
 
 
 class MainApp:
@@ -44,22 +41,31 @@ class MainApp:
 
     DummySamples = [20, 30, 25, 11, -10, 40, 32]
 
-    DIR = "/"
-    ID = str(ubinascii.hexlify(machine.unique_id()).decode('utf-8'))
+    DIR_LOGS    = const(0)
+    DIR_LORA    = const(1)
+    DIR_SENSOR  = const(2)
+    DIR_MSG     = const(3)
+    DIR_SYS     = const(4)
+    DIR_TREE = {
+        DIR_LOGS: "/logs",
+        DIR_LORA: "/lora",
+        DIR_SENSOR: "/sensor",
+        DIR_MSG: "/msg",
+        DIR_SYS: "/sys"
+    }
+    DIR_ROOT = "/"
     RETRIES = 1
-    FILTER_DEPTH = const(1)
+    FILTER_DEPTH = const(5)
     DEEPSLEEP_THRESHOLD_SEC = const(5)
+    SEND_LIMIT = const(1)
 
     SamplesPerMessage   = const(1)
 
     # Service intervals in seconds.
     MsgExInterval           = const(15)
     SensorReadInterval      = const(15)
-    Lora = None
-    PowerMngr = None
 
     # TTN
-
     TtnAppEui = [0x70, 0xB3, 0xD5, 0x7E, 0xD0, 0x03, 0x2C, 0xDC]
 
     # OTAA Test node 01
@@ -68,11 +74,11 @@ class MainApp:
                  0xCA, 0xB9, 0x06, 0xAC, 0x74, 0x11, 0x5E, 0xA8]
 
     # ABP Test node 01
-    DevAddr = [0x26, 0x01, 0x16, 0x76]
-    NwkSKey  = [0x69, 0xBD, 0x0C, 0x69, 0x7A, 0x2C, 0xCE, 0xB4,
-               0x26, 0x12, 0xFC, 0xB7, 0x3D, 0x54, 0x3A, 0xE6]
-    AppSKey = [0xC2, 0x4E, 0x3D, 0xB0, 0x86, 0x5D, 0x29, 0x09,
-               0xB5, 0xBD, 0x43, 0x26, 0x43, 0x4C, 0x6E, 0x5B]
+    DevAddr = [0x26, 0x01, 0x37, 0x47]
+    NwkSKey = [0x13, 0x48, 0xA0, 0x44, 0x47, 0xC4, 0x3B, 0xC8,
+               0x70, 0x9B, 0x2F, 0x5B, 0x5B, 0xAA, 0xE5, 0x7A]
+    AppSKey = [0x5D, 0x5A, 0x38, 0x50, 0x41, 0xD9, 0xD5, 0x0B,
+               0x14, 0x1D, 0xC5, 0x9A, 0xB4, 0xED, 0xFB, 0x59]
 
 
     TtnLoraConfig = {
@@ -116,17 +122,24 @@ class MainApp:
         return
 
     def Setup(self):
+
+        for dir in self.DIR_TREE.values():
+            try:
+                uos.mkdir(dir)
+            except OSError:
+                print("Cannot create directory '{}'".format(dir))
+
         # Configure the ExtLogging class.
-        ExtLogging.ConfigGlobal(level=ExtLogging.DEBUG, stream=None, dir="",
+        ExtLogging.ConfigGlobal(level=ExtLogging.DEBUG, stream=None, dir=self.DIR_TREE[self.DIR_LOGS],
                                 file_prefix="log_", line_limit=1000, file_limit=10)
 
-        StructFile.InitLogger(ExtLogging.Create("StructFile"))
+        StructFile.InitLogger(ExtLogging.Create("SFile"))
 
         self.Log = ExtLogging.Create("Main")
 
         self.Log.info("Device ID: {}".format(DeviceId.DeviceId()))
 
-        Version("", self.VER_MAJOR, self.VER_MINOR, self.VER_PATCH)
+        Version(self.DIR_TREE[self.DIR_SYS], self.VER_MAJOR, self.VER_MINOR, self.VER_PATCH)
 
         rst_reason = ResetReason.ResetReason()
         self.Log.debug("Reset reason: {}".format(ResetReason.ResetReasonToString(rst_reason)))
@@ -136,45 +149,49 @@ class MainApp:
 
         self.InternalTemp = InternalTemp()
 
-        self.LoraProtocol = LoraProtocol(self.KpnLoraConfig, dir="/")
+        self.LoraProtocol = LoraProtocol(self.KpnLoraConfig, directory=self.DIR_TREE[self.DIR_LORA])
+        # self.LoraProtocol = LoraProtocol(self.TtnLoraConfig, directory=self.DIR_TREE[self.DIR_LORA])
         # self.LoraProtocol.Params.StoreSession(self.DevAddr, self.AppSKey, self.NwkSKey)
 
-
-        self.DummySensor = Sensor.Sensor(self.DIR,
+        self.DummySensor = Sensor.Sensor(self.DIR_TREE[self.DIR_SENSOR],
                                         "Dummy",
                                         self.FILTER_DEPTH, self.DummySensorDriver,
                                         samples_per_read=1,
                                         dec_round=True,
                                         store_data=False)
 
-        self.TempSensor = Sensor.Sensor(self.DIR,
+        self.TempSensor = Sensor.Sensor(self.DIR_TREE[self.DIR_SENSOR],
                                         "Temp",
                                         self.FILTER_DEPTH, self.InternalTemp,
                                         samples_per_read=1,
                                         dec_round=True,
                                         store_data=False)
 
-        self.MsgEx = MessageExchange(self.DIR,
-                                     self.LoraProtocol,
-                                     self.RETRIES)
-
-        self.Scheduler = ServiceScheduler(self.DEEPSLEEP_THRESHOLD_SEC)
+        self.MsgEx = MessageExchange(directory=self.DIR_TREE[self.DIR_MSG],
+                                     proto_obj=self.LoraProtocol,
+                                     send_retries=self.RETRIES,
+                                     msg_size_max=self.LoraProtocol.Mtu,
+                                     msg_send_limit=self.SEND_LIMIT)
+        #PowerManager.PowerManager()
+        self.Scheduler = ServiceScheduler(deepsleep_threshold_sec=self.DEEPSLEEP_THRESHOLD_SEC,
+                                          deep_sleep_obj=None,
+                                          directory=self.DIR_TREE[self.DIR_SYS])
 
         self.MsgEx.SvcModeSet(Service.MODE_RUN_ONCE)
         self.DummySensor.SvcModeSet(Service.MODE_RUN_ONCE)
         self.TempSensor.SvcModeSet(Service.MODE_RUN_ONCE)
 
         # Set service dependencies.
-        # self.MsgEx.SvcDependencies({self.DummySensor: Service.DEP_TYPE_RUN_ALWAYS_BEFORE_RUN,
-        #                             self.TempSensor: Service.DEP_TYPE_RUN_ALWAYS_BEFORE_RUN})
-        self.MsgEx.SvcDependencies({})
+        self.MsgEx.SvcDependencies({self.DummySensor: Service.DEP_TYPE_RUN_ALWAYS_BEFORE_RUN,
+                                    self.TempSensor: Service.DEP_TYPE_RUN_ALWAYS_BEFORE_RUN})
+        # self.MsgEx.SvcDependencies({})
         self.DummySensor.SvcDependencies({})
         self.TempSensor.SvcDependencies({})
 
         # Register all services to the scheduler.
         self.Scheduler.ServiceRegister(self.MsgEx)
-        # self.Scheduler.ServiceRegister(self.DummySensor)
-        # self.Scheduler.ServiceRegister(self.TempSensor)
+        self.Scheduler.ServiceRegister(self.DummySensor)
+        self.Scheduler.ServiceRegister(self.TempSensor)
 
         self.Parser = CborParser()
         Message.SetParser(self.Parser)
@@ -202,24 +219,22 @@ class MainApp:
         # self.MsgEx.RegisterMessageType(self.LogMsgSpec)
 
         # Create observers for the sensor data.
-        # self.MoistObserver = self.ReportFmt.CreateObserver(SensorReport.DATA_KEY_MOIST, self.SamplesPerMessage)
-        # self.BatteryObserver = self.ReportFmt.CreateObserver(SensorReport.DATA_KEY_BAT, self.SamplesPerMessage)
-        # self.TempObserver = self.ReportFmt.CreateObserver(SensorReport.DATA_KEY_TEMP, self.SamplesPerMessage)
+        self.MoistObserver = self.ReportFmt.CreateObserver(SensorReport.DATA_KEY_MOIST, self.SamplesPerMessage)
+        self.BatteryObserver = self.ReportFmt.CreateObserver(SensorReport.DATA_KEY_BAT, self.SamplesPerMessage)
+        self.TempObserver = self.ReportFmt.CreateObserver(SensorReport.DATA_KEY_TEMP, self.SamplesPerMessage)
 
         # Link the observers to the sensors.
-        # self.DummySensor.ObserverAttachNewSample(self.MoistObserver)
-        # self.TempSensor.ObserverAttachNewSample(self.TempObserver)
+        self.DummySensor.ObserverAttachNewSample(self.MoistObserver)
+        self.TempSensor.ObserverAttachNewSample(self.TempObserver)
 
-        self.Scheduler.DeepSleep.RegisterCallbackBeforeDeepSleep(MainApp.BeforeSleep)
+        self.Scheduler.RegisterCallbackBeforeDeepSleep(MainApp.BeforeSleep)
 
         # Set intervals for all services.
         self.MsgEx.SvcIntervalSet(self.MsgExInterval)
-        # self.DummySensor.SvcIntervalSet(self.SensorReadInterval)
-        # self.TempSensor.SvcIntervalSet(self.SensorReadInterval)
+        self.DummySensor.SvcIntervalSet(self.SensorReadInterval)
+        self.TempSensor.SvcIntervalSet(self.SensorReadInterval)
 
-        # self.BatteryObserver.Update(100)
-
-        MainApp.PowerMngr = PowerManager.PowerManager()
+        self.BatteryObserver.Update(100)
 
         self.Log.info("Finished initialization.")
 
@@ -236,10 +251,11 @@ class MainApp:
 
     @staticmethod
     def BeforeSleep():
-        ExtLogging.Stop()
-        while True:
-            # MainApp.PowerMngr.Sleep(1000 * 300) # 86400 3590
+       ExtLogging.Stop()
+       while True:
+           # MainApp.PowerMngr.Sleep(1000 * 300) # 86400 3590
+          #  utime.sleep(10)
             for i in range(0, 10):
-                utime.sleep(30)
+                utime.sleep(60)
             machine.reset()
 
