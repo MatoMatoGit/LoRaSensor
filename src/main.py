@@ -7,3 +7,4 @@ if __name__ == '__main__':
     app = MainApp()
     app.Setup()
     app.Run()
+
