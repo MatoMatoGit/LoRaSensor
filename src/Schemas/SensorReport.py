@@ -14,7 +14,7 @@ class SensorReport(MessageSpecification):
     DIRECTION_REPORT   = MessageSpecification.MSG_DIRECTION_SEND
 
     def __init__(self):
-        self.DataDef = {SensorReport.DATA_KEY_MOIST: 0,
+        self.DataDef = {SensorReport.DATA_KEY_MOIST: [],
                         SensorReport.DATA_KEY_BAT: 100,
                         SensorReport.DATA_KEY_TEMP: 20}
 
