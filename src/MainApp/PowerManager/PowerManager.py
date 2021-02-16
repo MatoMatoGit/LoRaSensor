@@ -1,7 +1,6 @@
-from MainApp.PowerManager import Protocol
-from upyiot.drivers.Sleep import DeepSleepBase
 from upyiot.drivers.Sleep.DeepSleepBase import DeepSleepExceptionFailed
 from upyiot.drivers.Sleep.DeepSleepBase import DeepSleepBase
+from MainApp.PowerManager import Protocol
 from micropython import const
 import utime
 
