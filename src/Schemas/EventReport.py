@@ -12,7 +12,7 @@ class EventReport(MessageSpecification):
     DIRECTION_REPORT   = MessageSpecification.MSG_DIRECTION_SEND
 
     def __init__(self):
-        self.DataDef = {EventReport.DATA_KEY_EVENT: 0}
+        self.DataDef = {EventReport.DATA_KEY_EVENT: []}
 
         super().__init__(EventReport.TYPE_REPORT,
                          EventReport.SUBTYPE_EVENT_REPORT,
