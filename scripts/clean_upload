@@ -1,0 +1,9 @@
+rm /pyboard/main.py
+rm /pyboard/boot.py
+rm -r /pyboard/MainApp
+rm -r /pyboard/Schemas
+
+cp src/main.py /pyboard/
+cp src/boot.py /pyboard/
+cp -r src/MainApp /pyboard/
+cp -r src/Schemas /pyboard/

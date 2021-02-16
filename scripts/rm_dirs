@@ -1,0 +1,5 @@
+rm -r /pyboard/lora
+rm -r /pyboard/sys
+rm -r /pyboard/msg
+rm -r /pyboard/logs
+rm -r /pyboard/sensor
